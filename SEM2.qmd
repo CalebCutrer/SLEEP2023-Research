@@ -1,0 +1,369 @@
+---
+title: "New SEM and EFA"
+author: "Caleb Cutrer"
+format:
+  html:
+    self-contained: true
+editor: visual
+execute: 
+  echo: true
+  eval: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(rmarkdown); library(knitr); library(readxl); library(corrplot); library(psych); library(pso); library(GPArotation); library(lavaan); library(readr); library(tidyverse); library(haven); library(lavaan)
+```
+
+### Reading in Raw Data:
+
+```{r}
+# Reading in raw data:
+DatasetRawSEM2 <- read_sav("CopySAV_Original.SAV")
+```
+
+### Initial Data Cleaning and Variable Creation:
+
+Creating a data subset with variables of interest and renaming variables:
+
+```{r}
+# Creating a data subset with variables of interest and renaming variables:
+DataSubsetSEM2 <- DatasetRawSEM2 %>%
+  select("N3Q28","N3Q29A", "N3Q29B", "SSISALCOHOL", "N3Q13","N3Q14",
+         "N3Q15", "N3Q16B", "N3Q16C",
+         "ULS3", "RKESSLER6", "N3Q65A7", "N3Q65A15", "STUDY") %>%
+  rename(
+    
+    # Alcohol Variables
+    Incidence_HeavyEpisodicDrinking_last2wks = N3Q28,
+    DrinkingRegretAction = N3Q29A,
+    DrinkingBlackout = N3Q29B,
+    AlcoholUseScoreSSIS = SSISALCOHOL,
+    
+
+    # Sleep Variables:
+    SleepLatency = N3Q13,
+    AvgSleepWeeknight = N3Q14,
+    AvgSleepWeekendNight = N3Q15,
+    TiredDuringDay = N3Q16B,
+    SleepOnsetDifficult = N3Q16C,
+    
+    # Loneliness:
+    UCLALonelinessScale = ULS3, 
+    
+    # Psychological Distress  
+    Kessler6DistressRecode = RKESSLER6,
+    
+    # Anxiety and Depression Diagnoses
+    AnxietyDiagnosis = N3Q65A7, 
+    DepressionDiagnosis = N3Q65A15, 
+    
+    #Survey
+    SurveyYear = STUDY
+
+  )
+# Cleaning data & creating new variables:
+DataSubsetSEM2 <- DataSubsetSEM2 %>%
+  
+  # Creating a variable for the number of nights sleep onset was difficult in past week
+  mutate(
+    "SleepOnsetDifficultNights" = as.numeric(SleepOnsetDifficult)) %>% 
+  select(-SleepOnsetDifficult) %>%
+
+  # Recoding Insomnia Variable to Represent True Values (# of Nights):
+  mutate(
+    SleepOnsetDifficultNights = case_when(
+      SleepOnsetDifficultNights == 1 ~ 0,
+      SleepOnsetDifficultNights == 2 ~ 1,
+      SleepOnsetDifficultNights == 3 ~ 2,
+      SleepOnsetDifficultNights == 4 ~ 3,
+      SleepOnsetDifficultNights == 5 ~ 4,
+      SleepOnsetDifficultNights == 6 ~ 5,
+      SleepOnsetDifficultNights == 7 ~ 6,
+      SleepOnsetDifficultNights == 8 ~ 7
+    )
+  ) %>%
+  # Creating variable that reflects the study (fall 2019 or fall 2020)
+  mutate(SurveyYear = as.numeric(SurveyYear)) %>%
+  mutate(
+    SurveyYear = 
+      case_when(
+        SurveyYear == 40 ~ 19,
+        SurveyYear == 42 ~ 20
+      )) %>%
+  mutate(
+    Incidence_HeavyEpisodicDrinking_last2wks = as.numeric(Incidence_HeavyEpisodicDrinking_last2wks)
+  )
+  
+
+```
+
+### Recoding Sleep Duration Variables
+
+```{r}
+DataSubsetSEM2 <- DataSubsetSEM2 %>%
+  # Recoding weeknights:
+  mutate(
+    AvgSleepWeeknight = case_when(
+      AvgSleepWeeknight == 1 ~ 3,
+      AvgSleepWeeknight == 2 ~ 4,
+      AvgSleepWeeknight == 3 ~ 5,
+      AvgSleepWeeknight == 4 ~ 6,
+      AvgSleepWeeknight == 5 ~ 7,
+      AvgSleepWeeknight == 6 ~ 8,
+      AvgSleepWeeknight == 7 ~ 9,
+      AvgSleepWeeknight == 8 ~ 10,
+    )
+  ) %>%
+  # Recoding weekend-nights:
+  mutate(
+    AvgSleepWeekendNight = case_when(
+      AvgSleepWeekendNight == 1 ~ 3,
+      AvgSleepWeekendNight == 2 ~ 4,
+      AvgSleepWeekendNight == 3 ~ 5,
+      AvgSleepWeekendNight == 4 ~ 6,
+      AvgSleepWeekendNight == 5 ~ 7,
+      AvgSleepWeekendNight == 6 ~ 8,
+      AvgSleepWeekendNight == 7 ~ 9,
+      AvgSleepWeekendNight == 8 ~ 10,
+    )
+  ) 
+```
+
+#### Covariance Assessment & Visualizations
+
+```{r}
+R2 <- cor(DataSubsetSEM2, use = "pairwise.complete.obs")
+round(R2, 3) 
+corrplot::corrplot(R2, tl.cex = 0.5)
+heatmap(R2, margins = c(10,10), scale = c("row", "column", "none"))
+
+```
+
+# Exploratory Factor Analysis:
+
+## Response (High-Risk Alcohol Use) Variables:
+
+#### Extracting Eigenvalues & Identifying Intrinsic Dimensionality for Response Variables
+
+```{r}
+Response2 <- DataSubsetSEM2[ , c(1:4)]
+```
+
+```{r}
+R_response2 <- cor(Response2, use = "pairwise.complete.obs")
+R_response2
+eigen(R_response2)$values
+plot(eigen(R_response2)$values, type = "b") 
+
+```
+
+2.1051968 0.7866868 0.6082833 0.4998331
+
+Kaiser's: 1
+
+Jollife's Criterion (over 0.7): 2
+
+Scree Test: 3
+
+#### Optimal Orthogonally Rotated Factor Loadings Matrix Response Variables
+
+```{r}
+A_response2 <- pca(r = R_response2, nfactors = 2, rotate = "varimax")
+A_response2
+```
+
+Cumulative Variance = 0.72
+
+#### Testing to See if Oblique Rotation was Necessary
+
+```{r}
+A_response_Oblique2 <- pca(r = R_response2, nfactors = 2, rotate = "oblimin")
+A_response_Oblique2
+```
+
+Yes it was.
+
+Cumulative Variance = 0.72
+
+#### Finding which items within this group can be combined to form latent variables:
+
+```{r}
+factor2cluster(loads = A_response_Oblique2, cut = 0, aslist = TRUE)
+```
+
+```{r}
+A_response_ObliqueLoadings2 <- pca(r = R_response2, nfactors = 2, rotate = "oblimin")$loadings[]
+round(A_response_ObliqueLoadings2, 3)
+```
+
+TC1: "DrinkingRegretAction" "DrinkingBlackout"\
+TC2: "Incidence_HeavyEpisodicDrinking_last2wks" "AlcoholUseScoreSSIS"
+
+Complex variables: none
+
+## Predictor Variables:
+
+#### Extracting Eigenvalues & Identifying Intrinsic Dimensionality for the 15 Predictor Variables
+
+```{r}
+Predictors2 <- DataSubsetSEM2[, - c(1:4)]
+```
+
+```{r}
+R_Predictors2 <- cor(Predictors2, use = "pairwise.complete.obs")
+round(R_Predictors2,3)
+eigen(R_Predictors2)$values
+plot(eigen(R_Predictors2)$values, type = "b") 
+
+```
+
+2.9075243 1.5549252 1.1408727 1.0342544 0.9394755 0.7455285 0.5250093 0.4814577 0.3599191 0.3110333
+
+Kaiser's: 4\
+Jollife's Criterion: 5\
+Scree Test: 5
+
+#### Optimal Orthogonally Rotated Factor Loadings Matrix Predictors
+
+```{r}
+A_Predictors2 <- pca(r = R_Predictors2, nfactors = 5, rotate = "varimax")
+A_Predictors2
+```
+
+Cumulative Variance: 0.76
+
+#### Testing to See if Oblique Rotation was Necessary
+
+```{r}
+A_PredictorsOblique2 <- pca(r = R_Predictors2, nfactors = 5, rotate = "oblimin")
+A_PredictorsOblique2
+```
+
+Yes it was!
+
+#### Finding any latent variables
+
+```{r}
+factor2cluster(loads = A_Predictors2, cut = 0, aslist = TRUE)
+```
+
+\$RC1: "SleepLatency" "SleepOnsetDifficultNights"
+
+\$RC2: "AvgSleepWeeknight" "AvgSleepWeekendNight"
+
+\$RC3: "AnxietyDiagnosis" "DepressionDiagnosis"
+
+\$RC4: "TiredDuringDay" "UCLALonelinessScale" "Kessler6DistressRecode"
+
+\$RC5: "SurveyYear"
+
+```{r}
+A_PredictorsLoadings2 <- pca(r = R_Predictors2, nfactors = 5, rotate = "varimax")$loadings[]
+round(A_PredictorsLoadings2,3)
+```
+
+No complex variables
+
+```{r}
+A_PredictorsLoadings3 <- pca(r = R_Predictors2, nfactors = 5, rotate = "oblimin")$loadings[]
+round(A_PredictorsLoadings3,3)
+factor2cluster(loads = A_Predictors2, cut = 0, aslist = TRUE)
+```
+
+# Structural Equation Modeling:
+
+```{r}
+EQN2 <- '
+# Measurement Model (Factor Specification)
+  RC1SleepLatency_Onset =~ SleepLatency + SleepOnsetDifficultNights
+  RC2SleepDuration =~ AvgSleepWeeknight + AvgSleepWeekendNight
+  RC3AnxietyDepression =~ AnxietyDiagnosis + DepressionDiagnosis
+  RC4TiredLonelyDistressed =~ TiredDuringDay + UCLALonelinessScale + Kessler6DistressRecode
+  RC5Survey =~ SurveyYear
+  
+  TC1ProblematicDrinking =~ DrinkingRegretAction + DrinkingBlackout   
+  TC2HighRiskDrinking =~ Incidence_HeavyEpisodicDrinking_last2wks + AlcoholUseScoreSSIS  
+
+# Measurement Model (Covariance Specification)
+
+  
+# Structural Model
+  TC1ProblematicDrinking ~ RC1SleepLatency_Onset + RC2SleepDuration + RC3AnxietyDepression + RC4TiredLonelyDistressed + RC5Survey
+  TC2HighRiskDrinking ~ RC1SleepLatency_Onset + RC2SleepDuration + RC3AnxietyDepression + RC4TiredLonelyDistressed + RC5Survey
+ 
+'
+```
+
+```{r}
+covdata2 <- cov(DataSubsetSEM2, use = "pairwise.complete.obs")
+covdata2
+```
+
+```{r}
+MOD2 <- sem(model = EQN2, data = DataSubsetSEM2) 
+#MOD2 <- sem(model = EQN2, sample.cov = covdata2, sample.nobs = 105, check.gradient = FALSE ) 
+MOD2
+```
+
+```{r}
+parameters2 <- parameterEstimates(MOD2)
+
+parametersPval2 <- subset(parameters2, !(pvalue > 0.05))
+parametersPval2
+```
+
+## Compared Fit Indices:
+
+```{r}
+indices <- fitMeasures(MOD2)
+indices
+```
+
+### Normed Fit Index
+```{r}
+NFI <- (indices["baseline.chisq"] - indices["chisq"]) /
+        indices["baseline.chisq"]
+NFI
+```
+NFI = 0.954 (good fit)
+
+### Comparative Fit Index
+```{r}
+CFI <- indices["cfi"]
+CFI
+```
+CFI = 0.955 (good fit)
+
+## Root Mean Square Error of Approximation (RMSEA):
+```{r}
+RMSEA <- indices["rmsea"]
+RMSEA
+```
+RMSEA = 0.0491 (good fit)
+
+## Absolute Fit Indices
+
+### McDonald (and Marsh) Fit Index (MFI):
+```{r}
+MFI <- indices["mfi"]
+MFI
+```
+MFI = 0.934 (Not quite an adequate fit)
+
+### Adjusted Goodness-of-Fit Index or (AGFI):
+```{r}
+AGFI <- indices["agfi"]
+AGFI
+```
+AGFI = 0.963 (Pretty good)
+
+## Parsimonious Fit Indices:
+
+### Parsimonious Goodness-of-Fit Index or PGFI:
+```{r}
+PGFI <- indices["pgfi"]
+PGFI
+```
+PGFI = 0.5318429 (Moderate, not the best)
+

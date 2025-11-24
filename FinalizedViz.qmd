@@ -1,0 +1,775 @@
+---
+title: "Data Cleaning & Finalized Visualizations"
+author: "Caleb Cutrer"
+format:
+  html:
+    self-contained: true
+editor: visual
+execute: 
+  echo: true
+  eval: true
+---
+
+```{r setup, include=FALSE}
+
+library(rmarkdown); library(knitr); library(readxl); library(corrplot); library(psych); library(pso); library(GPArotation); library(lavaan); library(readr); library(tidyverse); library(haven); library(lavaan); library(dplyr); library(colorspace); library(skimr); library(plotly); library(ggridges); library(car); library(broom); library(moderndive) 
+```
+
+### Reading in Raw Data:
+
+```{r}
+# Reading in raw data:
+DatasetRaw <- read_sav("CopySAV_Original.SAV")
+```
+
+### Initial Data Cleaning and Variable Creation:
+
+```{r}
+# Creating a data subset with variables of interest and renaming variables:
+DataSubset <- DatasetRaw %>%
+  select("N3Q13","N3Q14","N3Q15","N3Q16A", "N3Q16B" ,"N3Q16C","N3Q16D", 
+         "N3Q25A", "N3Q28","N3Q29A","N3Q29B","N3Q29D","N3Q29E", "N3Q29H",
+         "N3Q29K", "N3Q29L", "SSISALCOHOL", "N3Q45A", "N3Q45B", "N3Q45C", 
+         "N3Q66P", "ULS3", "RKESSLER6","N3Q65A3","N3Q65A7", "N3Q65A15", "STUDY") %>% 
+  rename(
+    # Sleep Variables:
+    TimeToFallAsleep = N3Q13,
+    AvgSleepWeeknight = N3Q14,
+    AvgSleepWeekendNight = N3Q15,
+    WakeUpEarly_CantSleep = N3Q16A, 
+    TiredDuringDay = N3Q16B,
+    SleepOnsetDifficult = N3Q16C,
+    EnoughSleep_FeelRested = N3Q16D, 
+  
+    # Alcohol
+    DrinkingRegretAction = N3Q29A,
+    DrinkingPoliceTrouble = N3Q29D, 
+    DrinkingUniAuthoritiesTrouble = N3Q29E, 
+    UnprotectedSexWhileDrinking = N3Q29H,
+    ConsideredSuicideWhileDrinking = N3Q29K,
+    DrinkingBlackout = N3Q29B,
+    
+    DrinkingNeededMedicalHelp = N3Q29L,
+    FiveorMoreDrinks_1Sitting_last2wks = N3Q28,
+    # Alcohol Related Diagnoses/Assessments
+    AlcoholUseScoreSSIS = SSISALCOHOL,
+    AlcoholSubstanceAbuseDiagnosis = N3Q65A3,
+    DrankInTheLastYear = N3Q25A, 
+    # Loneliness:
+    LonelinessLackCompanionship = N3Q45A,
+    LonelinessFeelLeftOut = N3Q45B,
+    LonelinessIsolated = N3Q45C, 
+    SleepDifficulties = N3Q66P,
+    UCLALonelinessScale = ULS3, 
+    # Psychological Distress  
+    Kessler6DistressRecode = RKESSLER6,
+    # Anxiety Diagnosis
+    AnxietyDiagnosis = N3Q65A7, 
+    # Depression Diagnosis
+    DepressionDiagnosis = N3Q65A15, 
+
+  )
+
+# Cleaning data & creating new variables:
+DataSubset <- DataSubset %>%
+  #Creating a 2-level factor variable for SUD diagnosis:
+  mutate(AlcoholSubstanceAbuseDiagnosis = 
+           as.numeric(AlcoholSubstanceAbuseDiagnosis)) %>%
+  mutate(SUDs_Diagnosis_Factor = factor(AlcoholSubstanceAbuseDiagnosis, 
+                                        labels = c("No Diagnosis", "Diagnosis"))) %>%
+  select(-AlcoholSubstanceAbuseDiagnosis) %>%
+  
+  # Creating a variable for the number of nights sleep onset was difficult in past week
+  mutate(
+    "Insomnia" = as.numeric(SleepOnsetDifficult)) %>% 
+  select(-SleepOnsetDifficult) %>%
+  # Recoding Insomnia Variable to Represent True Values (# of Nights):
+  mutate(
+    Insomnia = case_when(
+      Insomnia == 1 ~ 0,
+      Insomnia == 2 ~ 1,
+      Insomnia == 3 ~ 2,
+      Insomnia == 4 ~ 3,
+      Insomnia == 5 ~ 4,
+      Insomnia == 6 ~ 5,
+      Insomnia == 7 ~ 6,
+      Insomnia == 8 ~ 7
+    )
+  ) %>%
+  # Creating variable that reflects the study (fall 2019 or fall 2020)
+  mutate(STUDY = as.numeric(STUDY)) %>%
+  mutate(
+    Fall19orFall20 = 
+      case_when(
+        STUDY == 40 ~ "19",
+        STUDY == 42 ~ "20"
+      )) %>%
+  select(-STUDY) %>%
+  mutate(
+    Fall19orFall20 = factor(Fall19orFall20, labels = c("Fall 2019", "Fall 2020"))
+    ) %>% 
+  mutate(
+    ConsideredSuicideWhileDrinking = case_when(
+      ConsideredSuicideWhileDrinking == 1 ~ "No",
+      ConsideredSuicideWhileDrinking == 2 ~ "Yes"
+    )
+  ) %>%
+  mutate(
+    UnprotectedSexWhileDrinking = case_when(
+      UnprotectedSexWhileDrinking == 1 ~ "No",
+      UnprotectedSexWhileDrinking == 2 ~ "Yes"
+    ))
+
+```
+
+### Recoding Sleep Duration Variables, creating a variable for the average nightly sleep duration for all nights in the past 2 weeks
+
+```{r}
+# | message: false
+DataSubset <- DataSubset %>%
+  # Recoding weeknights:
+  mutate(
+    AvgSleepWeeknight = case_when(
+      AvgSleepWeeknight == 1 ~ 3,
+      AvgSleepWeeknight == 2 ~ 4,
+      AvgSleepWeeknight == 3 ~ 5,
+      AvgSleepWeeknight == 4 ~ 6,
+      AvgSleepWeeknight == 5 ~ 7,
+      AvgSleepWeeknight == 6 ~ 8,
+      AvgSleepWeeknight == 7 ~ 9,
+      AvgSleepWeeknight == 8 ~ 10,
+    )
+  ) %>%
+  # Recoding weekend-nights:
+  mutate(
+    AvgSleepWeekendNight = case_when(
+      AvgSleepWeekendNight == 1 ~ 3,
+      AvgSleepWeekendNight == 2 ~ 4,
+      AvgSleepWeekendNight == 3 ~ 5,
+      AvgSleepWeekendNight == 4 ~ 6,
+      AvgSleepWeekendNight == 5 ~ 7,
+      AvgSleepWeekendNight == 6 ~ 8,
+      AvgSleepWeekendNight == 7 ~ 9,
+      AvgSleepWeekendNight == 8 ~ 10,
+    )
+  ) %>%
+  # Creating that overall average sleep duration variable
+  mutate(
+    "AverageSleepDuration" = ((AvgSleepWeeknight*5) + (AvgSleepWeekendNight*2))/7
+  ) %>%
+  mutate(AverageSleepDuration = as.numeric(AverageSleepDuration)) %>%
+  
+  # Recode Tired During Day
+  mutate(
+    TiredDuringDay = case_when(
+      TiredDuringDay == 1 ~ 0,
+      TiredDuringDay == 2 ~ 1,
+      TiredDuringDay == 3 ~ 2,
+      TiredDuringDay == 4 ~ 3,
+      TiredDuringDay == 5 ~ 4,
+      TiredDuringDay == 6 ~ 5,
+      TiredDuringDay == 7 ~ 6,
+      TiredDuringDay == 8 ~ 7)) %>%
+  mutate( 
+    EnoughSleep_FeelRested = case_when(
+      EnoughSleep_FeelRested == 1 ~ 0,
+      EnoughSleep_FeelRested == 2 ~ 1,
+      EnoughSleep_FeelRested == 3 ~ 2,
+      EnoughSleep_FeelRested == 4 ~ 3,
+      EnoughSleep_FeelRested == 5 ~ 4,
+      EnoughSleep_FeelRested == 6 ~ 5,
+      EnoughSleep_FeelRested == 7 ~ 6,
+      EnoughSleep_FeelRested == 8 ~ 7)) %>% 
+  mutate(
+    SleepDifficulties = case_when(
+      SleepDifficulties == 1 ~ "No Difficulties",
+      SleepDifficulties == 2 ~ "Difficulties",
+      SleepDifficulties == 3 ~ "Difficulties",
+      SleepDifficulties == 4 ~ "Difficulties")
+    )
+
+```
+
+[**It is worth touching upon a decision that was made in the process of recoding the sleep duration variables:**]{.underline}
+
+The variables AvgSleepWeeknight and AvgSleepWeekendNight were derived from the following survey questions, respectively:
+
+-   N3Q14 **Over the last 2 weeks, what is the average amount of sleep you have gotten on a [weeknight]{.underline} (excluding naps)? (Please select the response closest to your answer)**
+
+-   N3Q15 **Over the last 2 weeks, what is the average amount of sleep you have gotten on a [weekend]{.underline} night (excluding naps)? (Please select the response closest to your answer)**
+
+-   [**Both survey questions had the following response options:**]{.underline} (1) Less than 4 hours; (2) 4 hours; (3) 5 hours; (4) 6 hours; (5) 7 hours; (6) 8 hours; (7) 9 hours; (8) 10 or more hours
+
+As you can see, the 1st and the 8th responses options for both questions were not discrete hours of sleep duration---rather they were hour cut offs in a sense. Because of this, I chose to recode the AvgSleepWeeknight and AvgSleepWeekendNight variables such that the response "(1) Less than 4 hours" was represented by 3 (hours), and the response "(8) 10 or more hours" was represented by 10 (hours). This allowed me to treat these variables (and therefore AverageSleepDuration) as ordinal data and calculate/visualize means of sleep duration (in hours) and distributions.
+
+### Creating categorical variable for sleep latency
+
+```{r}
+DataSubset <- DataSubset %>%
+  mutate(SleepLatency = 
+           case_when(
+             TimeToFallAsleep == 1 ~ "Under 5 minutes",
+             TimeToFallAsleep == 2 ~ "5-15 minute",
+             TimeToFallAsleep == 3 ~ "16-30 minutes",
+             TimeToFallAsleep == 4 ~ "31 minutes - 1 hour",
+             TimeToFallAsleep == 5 ~ "Over 1 hour"
+           )) %>%
+  select(-TimeToFallAsleep) %>%
+  mutate(SleepLatency = as.factor(SleepLatency)) %>%
+  mutate(SleepLatency = fct_collapse(SleepLatency, 
+    'More Than 30 Minutes' = c("31 minutes - 1 hour", "Over 1 hour"),
+    'Less Than 30 Minutes' = c("Under 5 minutes", "5-15 minute", 
+                               "16-30 minutes"))
+    )
+```
+
+### Recoding variable for binge drinking incidence and making it a factor
+
+```{r}
+DataSubset <- DataSubset %>%
+  mutate(BingeDrinkingIncidence2Weeks = 
+           case_when(
+             FiveorMoreDrinks_1Sitting_last2wks == 1 ~ "Did not",
+             FiveorMoreDrinks_1Sitting_last2wks == 2 ~ "1 Time",
+             FiveorMoreDrinks_1Sitting_last2wks == 3 ~ "2 Times",
+             FiveorMoreDrinks_1Sitting_last2wks == 4 ~ "3 Times",
+             FiveorMoreDrinks_1Sitting_last2wks == 5 ~ "4 Times",
+             FiveorMoreDrinks_1Sitting_last2wks == 6 ~ "5 Times",
+             FiveorMoreDrinks_1Sitting_last2wks == 7 ~ "6 Times",
+             FiveorMoreDrinks_1Sitting_last2wks == 8 ~ "7 Times",
+             FiveorMoreDrinks_1Sitting_last2wks == 9 ~ "8 Times",
+             FiveorMoreDrinks_1Sitting_last2wks == 10 ~ "9 Times",
+             FiveorMoreDrinks_1Sitting_last2wks == 11 ~ "10 or More Times")
+  ) %>%
+  select(-FiveorMoreDrinks_1Sitting_last2wks) %>%
+  mutate(BingeDrinkingIncidence2Weeks = fct_collapse(
+    BingeDrinkingIncidence2Weeks,
+    'No' = "Did not",
+    'Yes' = c("1 Time", "2 Times", "3 Times", "4 Times", "5 Times", "6 Times", "7 Times", "8 Times", "9 Times", "10 or More Times"))) %>%
+  mutate(DrinkingBlackout = case_when(
+    DrinkingBlackout == 1 ~ "No",
+    DrinkingBlackout == 2 ~ "Yes"
+  ))
+         
+```
+
+# [Visualizations of Differences Between Survey Years]{.underline}:
+
+## Comparing 2019 SSIS Alcohol Scores with 2020 SSIS Alcohol Scores:
+
+### Both students with and without a substance use disorder diagnosis showed slightly lower levels of high-risk drinking in 2020:
+
+### Boxplot:
+
+-   **X-axis**: Fall19orFall20 X SUDs_Diagnosis_Factor
+
+-   **Y-axis**: AlcoholUseScoreSSIS (Interval scale, 0-39)
+
+```{r}
+ggplot(subset(DataSubset, !is.na(SUDs_Diagnosis_Factor)), aes(x = interaction(Fall19orFall20, SUDs_Diagnosis_Factor, lex.order =  FALSE), y = AlcoholUseScoreSSIS, fill = Fall19orFall20)) +
+  geom_boxplot(outlier.shape = 20) +
+  scale_fill_manual(values = c("#99CCFF", "#FFFF99")) +
+  stat_summary(fun.y = "mean", geom = "point", shape = 23, size = 3, fill = "white") +
+  theme(panel.border = element_rect(colour = "black", fill = NA, size = 0.5)) +
+  
+  xlab("\nSubstance Use Disorder Diagnosis Status\n") +
+  theme(axis.title.x = element_text(
+    size = 13)) +
+  
+  scale_x_discrete(labels = c("No Diagnosis", "No Diagnosis", "Diagnosis", "Diagnosis")) +
+  theme(
+    axis.text.x = element_text(face = "bold", colour = "black", size = rel(1.1))
+  ) + 
+  
+  ylab("\nSSIS Alcohol Score\n") + 
+  theme(axis.title.y = element_text(
+    size = 13)) +
+  theme(axis.text.y = element_text(
+    size = rel(1.1))) +
+ 
+  labs(fill = "Survey Year") + 
+  theme(legend.title = element_text(size = 13)) +
+  theme(
+    legend.background = element_rect(fill = "grey85", colour = "black", size = 0.25)
+  ) + 
+  
+  ggtitle("SSIS Alcohol Scores by Survey Year and Substance Use \n Disorder Diagnosis Status") + 
+  theme(plot.title = element_text(size = 16, hjust = 0.5, face = "bold")) 
+
+ 
+```
+
+## Comparing the Reported Frequency of Having a Hard Time Falling Asleep (past week) between 2019 and 2020, by SUDs Diagnosis status:
+
+### When compared to 2019, both students with and without SUD diagnosis showed more difficulties falling asleep:
+
+### Boxplot:
+
+-   **X-axis**: Fall19orFall20 X SUDs_Diagnosis_Factor
+-   **Y-axis:** Insomnia (Number of nights in past week they had extremely hard time falling asleep -- ratio data)
+-   Density Plot, Violin Plot
+
+```{r}
+ggplot(subset(DataSubset,!is.na(SUDs_Diagnosis_Factor)), aes(x = interaction(Fall19orFall20, SUDs_Diagnosis_Factor, lex.order =  FALSE), y = Insomnia, fill = Fall19orFall20)) +
+  geom_boxplot() +
+  scale_fill_manual(values = c("#99CCFF", "#FFFF99")) +
+  stat_summary(fun.y = "mean", geom = "point", shape = 23, size = 3, fill = "black") +
+  theme(panel.border = element_rect(colour = "black", fill = NA, size = 0.5)) +
+  
+  xlab("\nSubstance Use Disorder Diagnosis Status\n") +
+  theme(axis.title.x = element_text(
+    size = 13)) +
+  
+  scale_x_discrete(labels = c("No Diagnosis","No Diagnosis", "Diagnosis", "Diagnosis")) +
+  theme(
+    axis.text.x = element_text(face = "bold", colour = "black", size = rel(1.1))
+  ) + 
+  
+  ylab("\nNumber of Nights In Past Week with an \n Extremely Hard Time Falling Asleep\n") +
+  theme(axis.title.y = element_text(
+    size = 12)) +
+  theme(axis.text.y = element_text(
+    size = rel(1.1))) +
+  
+  labs(fill = "Survey Year") + 
+  theme(legend.title = element_text(size = 13)) +
+  theme(
+    legend.background = element_rect(fill = "grey85", colour = "black", size = 0.25)
+  ) + 
+  
+  ggtitle("\n Frequency of Sleep Difficulties by Survey Year and SUD Diagnosis Status") + 
+  theme(plot.title = element_text(size = 16, hjust = 0.5, face = "bold")) 
+ 
+```
+
+## Comparing sleep duration (weeknights) in the past two weeks between 2019 and 2020, for students with and without SUD diagnosis
+
+### When compared to 2019, both students with and without SUD diagnosis showed longer sleep duration on weeknights in the past two weeks:
+
+### Box Plot:
+
+```{r}
+ggplot(subset(DataSubset, !is.na(SUDs_Diagnosis_Factor)), aes(x = interaction(Fall19orFall20, SUDs_Diagnosis_Factor, lex.order =  FALSE), y = AvgSleepWeeknight, fill = Fall19orFall20)) +
+  geom_boxplot(outlier.shape = NA) +
+  stat_summary(fun.y = "mean", geom = "point", shape = 23, size = 3, fill = "white")+
+  xlab("Survey Year x SUDs Diagnosis") +
+  scale_x_discrete(labels = c("No Diagnosis", "No Diagnosis", "Diagnosis", "Diagnosis")) +
+  ylab("Hours of Sleep on Weeknight, Past 2 Weeks") +
+  labs(fill = "Survey Year")
+```
+
+## ([Not Going to Use This)]{.underline} Mean Bar Plot of Average Sleep Duration of Weeknights in the Past Two Weeks:
+
+```{r}
+ggplot(subset(DataSubset, !is.na(SUDs_Diagnosis_Factor)), aes(x = SUDs_Diagnosis_Factor , y = AvgSleepWeeknight, fill = Fall19orFall20)) +
+  geom_bar(stat="summary", position = "dodge") +
+  labs(fill = "")
+
+```
+
+## Some pairwise t-tests between no SUD diagnosis and SUD diagnosis, as well as creating 4 separate groups and running an ANOVA.
+
+### T-tests for Weeknights:
+
+```{r}
+# Diagnosis Factor
+t.test(AvgSleepWeeknight ~ SUDs_Diagnosis_Factor, data = DataSubset)
+# Significant difference: 
+# No diagnosis: 6 hours: 33 minutes
+# Diagnosis: 6 hours, 23 minutes
+
+# Study Year  Factor
+t.test(AvgSleepWeeknight ~ Fall19orFall20, data = DataSubset)
+# Significant difference: 
+# 2019: 6 hours: 9 minutes
+# 2020: 6 hours, 40 minutes
+```
+
+### T-tests for average sleep duration of all nights (weighted average of weekend nights and weeknights):
+
+```{r}
+# Diagnosis Factor
+t.test(AverageSleepDuration ~ SUDs_Diagnosis_Factor, data = DataSubset)
+# Significant difference: 
+# No diagnosis: 6 hours: 49 minutes
+# Diagnosis: 6 hours, 38 minutes
+
+# Study Factor
+t.test(AverageSleepDuration ~ Fall19orFall20, data = DataSubset)
+# Significant difference: 
+# 2019: 6 hours: 46 minutes
+# 2020: 6 hours, 55 minutes
+
+
+```
+
+### ANOVA for both Survey Year (Fall 2019 or 2020) SUD Diagnosis (Yes or No), for sleep duration weeknights:
+
+```{r}
+# Both variables significant
+A1 <- aov(AvgSleepWeeknight ~ Fall19orFall20 +SUDs_Diagnosis_Factor, data = DataSubset)
+summary(A1)
+model.tables(A1)
+coefficients(A1)
+```
+
+AvgSleepWeeknightHat = 6.5 + 0.19(Fall2020) - 0.17(DiagnosisYes)
+
+$$
+\widehat{AvgSleepWeeknight} = 6.5 + 0.19(Fall2020) - 0.17(DiagnosisYes) 
+$$
+
+AvgSleepWeeknightHat (Fall 2019, No Diagnosis) = 6.5 hours \tex
+
+AvgSleepWeeknightHat (Fall 2020, No Diagnosis) = 6.69 hours \tex
+
+AvgSleepWeeknightHat (Fall 2019, Diagnosis) = 6.33 hours \tex
+
+AvgSleepWeeknightHat (Fall 2020, Diagnosis) = 6.52 hours \tex
+
+### ANOVA for both Survey Year (Fall 2019 or 2020) SUD Diagnosis (Yes or No), for sleep duration all nights:
+
+```{r}
+# ANOVA
+A2 <- aov(AverageSleepDuration ~ Fall19orFall20 +SUDs_Diagnosis_Factor, data = DataSubset)
+summary(A2) 
+model.tables(A2) # Comparing to the grand mean
+coefficients(A2)
+```
+
+AvgSleepDurationHat = 6.788 + 0.135(Fall2020) - 0.183(DiagnosisYes)
+
+$$
+\widehat{AvgSleepWeeknight} = 6.788 + 0.135(Fall2020) - 0.183(DiagnosisYes)  
+$$ AvgSleepDurationHat (Fall 2019, No Diagnosis) = 6.79 hours \tex
+
+AvgSleepDurationHat (Fall 2020, No Diagnosis) = 6.92 hours \tex
+
+AvgSleepDurationHat (Fall 2019, Diagnosis) = 6.60 hours \tex
+
+AvgSleepDurationHat (Fall 2020, Diagnosis) = 6.74 hours \tex
+
+Significant, but effect sizes are minimal.
+
+# [Predicting High-Risk Alcohol Use:]{.underline}
+
+## Students with SUD diagnosis who also had sleep latencies \> 30 minutes were significantly more likely to report binge drinking (\>5 drinks in one sitting) than those with shorter sleep latencies.
+
+### Creating Proportions for Labels:
+
+```{r}
+percentData <- subset(DataSubset, SUDs_Diagnosis_Factor == "Diagnosis" & !is.na(BingeDrinkingIncidence2Weeks)) %>% 
+  group_by(BingeDrinkingIncidence2Weeks) %>% 
+  count(SleepLatency) %>%
+    mutate(ratio=scales::percent(n/sum(n)))
+percentData
+```
+
+### Proportional Stacked Bar Graph:
+
+```{r}
+ggplot(subset(DataSubset, SUDs_Diagnosis_Factor == "Diagnosis" & !is.na(BingeDrinkingIncidence2Weeks)), aes(x = BingeDrinkingIncidence2Weeks, fill = SleepLatency)) + 
+  geom_bar(position = "fill") +
+  scale_fill_manual(values = c("#99CCFF", "#FFFF99")) +
+  theme(panel.border = element_rect(colour = "black", fill = NA, size = 0.5)) +
+  
+  xlab("\nBinge Drank in Last Two Weeks\n") +
+  theme(axis.title.x = element_text(
+    size = 13)) +
+  theme(
+    axis.text.x = element_text(face = "bold", colour = "black", size = rel(1.1))
+  ) + 
+  
+  ylab("\nProportion\n") +
+  theme(axis.title.y = element_text(
+    size = 13)) +
+  theme(axis.text.y = element_text(
+    size = rel(1.1))) +
+  
+  labs(fill = "Sleep Latency") +
+  theme(legend.title = element_text(size = 13)) +
+  theme(
+    legend.background = element_rect(fill = "grey85", colour = "black", size = 0.25)
+  ) + 
+  
+  geom_text(data=percentData, aes(y=n,label=ratio),
+            position=position_fill(vjust=0.5)) +
+  ggtitle("\nBinge Drinker Proportions by Sleep Latency") + 
+  theme(plot.title = element_text(size = 16, hjust = 0.5, face = "bold")) 
+```
+
+## In students without SUD, short sleep duration and loneliness were the primary predictors of past year high risk alcohol use:
+
+### Multiple Regression Model predicting Alcohol Use (risk) Scores for students without a diagnosis
+
+```{r}
+modelNoD <- lm(AlcoholUseScoreSSIS ~ AvgSleepWeeknight + AvgSleepWeekendNight + TiredDuringDay + Insomnia + EnoughSleep_FeelRested + UCLALonelinessScale, data = subset(DataSubset, SUDs_Diagnosis_Factor == "No Diagnosis"))
+summary(modelNoD)
+```
+
+### Formula:
+
+$$
+\widehat{SSIS Alcohol Score} = 5.82 + 0.15AvgSleepWeeknight \\ - 0.28AvgSleepWeekendNight + 0.14TiredDuringDay + 0.15Insomnia \\ -0.04EnoughSleepFeelRested + 0.21UCLALonelinessScale 
+$$
+
+## In students with SUDs, long sleep and loneliness (UCLA Loneliness Scale) were the primary predictors, and [sleep factors predicted more variance in high-risk alcohol use than in the general college population]{.underline}:
+
+-   Would this be referring to the R squared value/Adj R squared value, as compared to that for a model of students without an SUD? Yes
+
+### Model for students with a diagnosis:
+
+```{r}
+modelD <- lm(AlcoholUseScoreSSIS ~ AvgSleepWeeknight + AvgSleepWeekendNight + TiredDuringDay + Insomnia + EnoughSleep_FeelRested + UCLALonelinessScale, data = subset(DataSubset, SUDs_Diagnosis_Factor == "Diagnosis"))
+summary(modelD)
+```
+
+### Formula:
+
+$$
+\widehat{SSIS Alcohol Score} = 4.84 - 0.17AvgSleepWeeknight \\ + 0.04AvgSleepWeekendNight + 0.55TiredDuringDay + 0.52Insomnia \\ + 0.36EnoughSleepFeelRested + 0.58UCLALonelinessScale 
+$$
+
+### Revised model for students with a diagnosis:
+
+```{r}
+modelD2 <- lm(AlcoholUseScoreSSIS ~  Insomnia + UCLALonelinessScale, data = subset(DataSubset, SUDs_Diagnosis_Factor == "Diagnosis"))
+summary(modelD2)
+```
+
+### Revised Formula:
+
+$$
+\widehat{SSIS Alcohol Score} = 7.91  + 0.64Insomnia + 0.61UCLALonelinessScale 
+$$
+
+## MLR Predicting High Risk Drinking/SSIS Scores -- Parallel Slopes Model
+
+```{r}
+model <- lm(AlcoholUseScoreSSIS ~ AvgSleepWeeknight + AvgSleepWeekendNight + TiredDuringDay + Insomnia + EnoughSleep_FeelRested + UCLALonelinessScale + SUDs_Diagnosis_Factor, data = DataSubset)
+summary(model)
+vif(model)
+
+```
+
+Residuals v Fitted Plot
+
+```{r}
+# l eval: false
+model_augment <- augment(model)
+ggplot(model_augment, aes(x= .fitted, y = .resid)) + 
+  geom_point(aes(color = SUDs_Diagnosis_Factor)) +
+  geom_smooth()
+
+plot(model, 2)
+```
+
+### Formula:
+
+$$
+\widehat{SSIS Alcohol Score} = 5.85 + 0.15AvgSleepWeeknight  - 0.27AvgSleepWeekendNight + 0.15TiredDuringDay + 0.14Insomnia - \\ 0.03EnoughSleepFeelRested + 0.21UCLALonelinessScale + 6.16SUDsDiagnosisFactorDiagnosis_{yes}
+$$
+
+#### Model Equation for Diagnosis = Yes:
+
+$$
+\widehat{SSIS Alcohol Score} = 12.01 + 0.15AvgSleepWeeknight  - 0.27AvgSleepWeekendNight + \\ 0.15TiredDuringDay + 0.14Insomnia - 0.03EnoughSleepFeelRested + 0.21UCLALonelinessScale 
+$$\
+
+#### Model Equation for Diagnosis = No:
+
+$$
+\widehat{SSIS Alcohol Score} = 5.73 + 0.15AvgSleepWeeknight  - 0.27AvgSleepWeekendNight + \\ 0.15TiredDuringDay + 0.14Insomnia - 0.03EnoughSleepFeelRested + 0.21UCLALonelinessScale 
+$$
+
+#### Scatterplot:
+
+```{r}
+# l eval: false
+ggplot(data = DataSubset, aes(y = AlcoholUseScoreSSIS, x= AvgSleepWeeknight, color = Fall19orFall20)) + 
+  geom_point(position = "jitter") + 
+  geom_smooth(method = lm)
+
+```
+
+## Students who reported sleep difficulties were more likely to have seriously considered suicide while drinking (in the past 12 months) than those without sleep difficulties
+
+### Creating Proportions for Labels:
+
+```{r}
+percentData2 <- subset(DataSubset, !is.na(SleepDifficulties) & !is.na(ConsideredSuicideWhileDrinking)) %>% 
+  group_by(ConsideredSuicideWhileDrinking) %>% 
+  count(SleepDifficulties) %>%
+    mutate(ratio=scales::percent(n/sum(n)))
+```
+
+### Proportional Stacked Bar Graph:
+
+```{r}
+ggplot(subset(DataSubset, !is.na(SleepDifficulties) & !is.na(ConsideredSuicideWhileDrinking)), aes(x = ConsideredSuicideWhileDrinking, fill = SleepDifficulties)) + 
+  geom_bar(position = "fill", show.legend= FALSE)  +
+  theme(plot.margin = margin(0, 1.75, 0, 0, "cm")) +
+  scale_fill_manual(values = c("#99CCFF", "#FFFF99")) +
+  theme(panel.border = element_rect(colour = "#000056", fill = NA, size = 0.5)) +
+  
+  xlab("\nConsidered Suicide While Drinking\n") +
+  theme(axis.title.x = element_text(colour = "#000056",
+    size = 13)) +
+  theme(
+    axis.text.x = element_text(face = "bold", colour = "#000056", size = rel(1.4))
+  ) + 
+  
+  ylab("\nPercentage of Those With Sleep Difficulties\n") +
+  theme(axis.title.y = element_text(colour = "#000056",
+    size = 13)) +
+  theme(axis.text.y = element_text(face = "bold", colour = "#000056",
+    size = rel(1.2))) +
+
+  
+  geom_text(data=percentData2, aes(y=n,label=ratio),
+            position=position_fill(vjust=0.5)) +
+  ggtitle("\nConsidered Suicide While Drinking by Sleep Difficulties\n") + 
+  theme(plot.title = element_text(size = 16, hjust = 0.5, face = "bold", colour = "#000056")) 
+```
+
+## Students who reported sleep difficulties were more likely to have unprotected sex while drinking (in the past 12 months) than those without sleep difficulties
+
+### Creating Proportions for Labels:
+
+```{r}
+percentData3 <- subset(DataSubset, !is.na(SleepDifficulties) & !is.na(UnprotectedSexWhileDrinking)) %>% 
+  group_by(UnprotectedSexWhileDrinking) %>% 
+  count(SleepDifficulties) %>%
+    mutate(ratio=scales::percent(n/sum(n)))
+
+```
+
+### Proportional Stacked Bar Graph:
+
+```{r}
+ggplot(subset(DataSubset, !is.na(SleepDifficulties) & !is.na(UnprotectedSexWhileDrinking)), aes(x = UnprotectedSexWhileDrinking, fill = SleepDifficulties)) + 
+  geom_bar(position = "fill", show.legend= FALSE)  +
+  theme(plot.margin = margin(0, 1.75, 0, 0, "cm")) +
+  scale_fill_manual(values = c("#99CCFF", "#FFFF99")) +
+  theme(panel.border = element_rect(colour = "#000056", fill = NA, size = 0.5)) +
+  
+  xlab("\nHad Unprotected Sex While Drinking\n") +
+  theme(axis.title.x = element_text(colour = "#000056",
+    size = 13)) +
+  theme(
+    axis.text.x = element_text(face = "bold", colour = "#000056", size = rel(1.4))
+  ) + 
+  
+  ylab("\nPercentage of Those With Sleep Difficulties\n") +
+  theme(axis.title.y = element_text(colour = "#000056",
+    size = 13)) +
+  theme(axis.text.y = element_text(face = "bold", colour = "#000056",
+    size = rel(1.2))) +
+  
+  
+  geom_text(data=percentData3, aes(y=n,label=ratio),
+            position=position_fill(vjust=0.5)) +
+  ggtitle("\nUnprotected Sex While Drinking by Sleep Difficulties\n") + 
+  theme(plot.title = element_text(size = 16, hjust = 0.5, face = "bold", colour = "#000056")) 
+```
+
+## Students who reported sleep difficulties were more likely to have blacked out while drinking (in the last 12 months) than those without sleep difficulties
+
+### Creating Proportions for Labels:
+
+```{r}
+percentData4 <- subset(DataSubset, !is.na(SleepDifficulties) & !is.na(DrinkingBlackout)) %>% 
+  group_by(DrinkingBlackout) %>% 
+  count(SleepDifficulties) %>%
+    mutate(ratio=scales::percent(n/sum(n)))
+```
+
+### Proportional Stacked Bar Graph:
+
+```{r}
+ggplot(subset(DataSubset, !is.na(SleepDifficulties) & !is.na(DrinkingBlackout)), aes(x = DrinkingBlackout, fill = SleepDifficulties)) + 
+  geom_bar(position = "fill", show.legend= FALSE)  +
+  theme(plot.margin = margin(0, 1.75, 0, 0, "cm")) +
+  scale_fill_manual(values = c("#99CCFF", "#FFFF99")) +
+  theme(panel.border = element_rect(colour = "#000056", fill = NA, size = 0.5)) +
+  
+  xlab("\n Blacked Out While Drinking\n") +
+  theme(axis.title.x = element_text(colour = "#000056", 
+    size = 13)) +
+  theme(
+    axis.text.x = element_text(face = "bold", colour = "#000056", size = rel(1.4))
+  ) + 
+  
+  ylab("\nPercentage of Those With Sleep Difficulties\n") +
+  theme(axis.title.y = element_text(colour = "#000056",
+    size = 13)) +
+  theme(axis.text.y = element_text(face = "bold", colour = "#000056",
+    size = rel(1.2))) +
+  
+  
+  geom_text(data=percentData4, aes(y=n,label=ratio),
+            position=position_fill(vjust=0.5)) +
+  ggtitle("\n Blacked Out While Drinking by Sleep Difficulties\n") + 
+  theme(plot.title = element_text(size = 16, hjust = 0.5, face = "bold", colour = "#000056")) 
+```
+
+Proportion: looking at trouble with police while drinking (yes or no) by sleep difficulties (yes or no)
+
+```{r}
+DataSubset <- DataSubset %>%
+  mutate(
+    DrinkingPoliceTrouble = case_when(
+      DrinkingPoliceTrouble == 1 ~ "No",
+      DrinkingPoliceTrouble == 2 ~ "Yes")
+    )
+```
+
+## Students who reported sleep difficulties were more likely to have gotten in trouble with the police while drinking (in the last 12 months) than those without sleep difficulties
+
+### Creating Proportions for Labels:
+
+```{r}
+percentData5 <- subset(DataSubset, !is.na(SleepDifficulties) & !is.na(DrinkingPoliceTrouble)) %>% 
+  group_by(DrinkingPoliceTrouble) %>% 
+  count(SleepDifficulties) %>%
+    mutate(ratio=scales::percent(n/sum(n)))
+```
+
+### Proportional Stacked Bar Graph:
+
+```{r}
+ggplot(subset(DataSubset, !is.na(SleepDifficulties) & !is.na(DrinkingPoliceTrouble)), aes(x = DrinkingPoliceTrouble, fill = SleepDifficulties)) + 
+  geom_bar(position = "fill", show.legend= FALSE)  +
+  theme(plot.margin = margin(0, 1.75, 0, 0, "cm")) +
+  scale_fill_manual(values = c("#99CCFF", "#FFFF99")) +
+  theme(panel.border = element_rect(colour = "#000056", fill = NA, size = 0.5)) +
+  
+  xlab("\nGot in Trouble with the Police While Drinking\n") +
+  theme(axis.title.x = element_text(colour = "#000056",
+    size = 13)) +
+  theme(
+    axis.text.x = element_text(face = "bold", colour = "#000056", size = rel(1.4))
+  ) + 
+  
+  ylab("\nPercentage of Those With Sleep Difficulties\n") +
+  theme(axis.title.y = element_text(colour = "#000056",
+    size = 13)) +
+  theme(axis.text.y = element_text(face = "bold", colour = "#000056",
+    size = rel(1.2))) +
+  
+  
+  geom_text(data=percentData5, aes(y=n,label=ratio),
+            position=position_fill(vjust=0.5)) +
+  ggtitle("\nTrouble with the Police by Sleep Difficulties\n") + 
+  theme(plot.title = element_text(size = 16, hjust = 0.5, face = "bold", colour = "#000056")) 
+```
+
+```{r}
+counts <- subset(DataSubset, !is.na(SUDs_Diagnosis_Factor)) %>%
+  group_by(Fall19orFall20) %>% 
+  count(SUDs_Diagnosis_Factor) 
+counts
+
+counts2 <- count(subset(DataSubset, Fall19orFall20 == 'Fall 2019'))
+counts2
+```

@@ -1,0 +1,389 @@
+---
+title: "Visualizations"
+author: "Caleb Cutrer"
+format:
+  html:
+    self-contained: true
+editor: visual
+execute: 
+  echo: true
+  eval: true
+---
+
+```{r setup, include=FALSE}
+
+library(rmarkdown); library(knitr); library(readxl); library(corrplot); library(psych); library(pso); library(GPArotation); library(lavaan); library(readr); library(tidyverse); library(haven); library(lavaan); library(dplyr); library(colorspace); library(skimr); library(plotly)
+```
+
+## Raw Data:
+
+```{r}
+DatasetRaw <- read_sav("CopySAV_Original.SAV")
+DataSubset <- DatasetRaw %>%
+  select("N3Q13","N3Q14","N3Q15","N3Q16A", "N3Q16B" ,"N3Q16C","N3Q16D", "N3Q25A", "N3Q28","N3Q29A","N3Q29B",
+         "N3Q29D","N3Q29E", "N3Q29L",  "SSISALCOHOL", "N3Q45A", "N3Q45B", "N3Q45C",
+         "RULS3", "RKESSLER6", "N3Q65A3","N3Q65A7", "N3Q65A15", "STUDY") %>%
+  rename(
+    #Response/Sleep Variables:
+    TimeToFallAsleep = N3Q13,
+    AvgSleepWeeknight = N3Q14,
+    AvgSleepWeekendNight = N3Q15,
+    WakeUpEarly_CantSleep = N3Q16A, 
+    TiredDuringDay = N3Q16B,
+    SleepOnsetDifficult = N3Q16C,
+    EnoughSleep_FeelRested = N3Q16D, 
+    # Alcohol
+    DrinkingRegretAction = N3Q29A,
+    DrinkingPoliceTrouble = N3Q29D, 
+    DrinkingUniAuthoritiesTrouble = N3Q29E, 
+    # Signs of Overuse/Binge Drinking:
+    DrinkingBlackout = N3Q29B,
+    DrinkingNeededMedicalHelp = N3Q29L,
+    FiveorMoreDrinks_1Sitting_last2wks = N3Q28,
+    # Alcohol Related Diagnoses/Assessments
+    AlcoholUseScoreSSIS = SSISALCOHOL,
+    AlcoholSubstanceAbuseDiagnosis = N3Q65A3,
+    DrankInTheLastYear = N3Q25A, 
+    # Loneliness:
+    LonelinessLackCompanionship = N3Q45A,
+    LonelinessFeelLeftOut = N3Q45B,
+    LonelinessIsolated = N3Q45C, 
+    UCLALonelinessScaleRecode = RULS3, 
+    #Single Observed Variables Predictor Variables: 
+    # Psychological Distress  
+    Kessler6DistressRecode = RKESSLER6,
+    # Anxiety Diagnosis
+    AnxietyDiagnosis = N3Q65A7, 
+    # Depression Diagnosis
+    DepressionDiagnosis = N3Q65A15, 
+
+  )
+DataSubset <- DataSubset %>%
+  mutate(AlcoholSubstanceAbuseDiagnosis = 
+           as.numeric(AlcoholSubstanceAbuseDiagnosis)) %>%
+  mutate(STUDY = as.numeric(STUDY)) %>%
+  # Does this weigh the weeknights and weekend-nights correctly?
+  mutate(
+    "AverageSleepDuration" = ((AvgSleepWeeknight*5) + (AvgSleepWeekendNight*2))/7
+  ) %>%
+  mutate(AverageSleepDuration = as.numeric(AverageSleepDuration)) %>%
+  mutate(
+    "Insomnia" = as.numeric(SleepOnsetDifficult)
+  ) %>% 
+  mutate(
+    SUDs_Diagnosis_Factor = factor(AlcoholSubstanceAbuseDiagnosis, labels = c("No Diagnosis", "Diagnosis"))) %>%
+  mutate(
+    Fall19orFall20 = 
+      case_when(
+        STUDY == 40 ~ "19",
+        STUDY == 42 ~ "20"
+      )) %>%
+  mutate(
+    Fall19orFall20 = factor(Fall19orFall20, labels = c("Fall 2019", "Fall 2020"))
+    ) 
+
+```
+
+# When compared to 2019, both students with and without SUD diagnosis showed lower levels of high-risk drinking:
+
+Calculating Mean ASSIST Scores:
+
+```{r}
+# | message: false
+# Total Mean ASSIST Score for 2019
+TotalMeanSSIS_Score2019 <- mean(DataSubset$AlcoholUseScoreSSIS[DataSubset$Fall19orFall20 == "Fall 2019"], na.rm = TRUE)
+TotalMeanSSIS_Score2019
+# 7.001123
+
+# Total Mean ASSIST Score for 2020
+TotalMeanSSIS_Score2020 <- mean(DataSubset$AlcoholUseScoreSSIS[DataSubset$Fall19orFall20 == "Fall 2020"], na.rm = TRUE)
+TotalMeanSSIS_Score2020
+#6.535292
+```
+
+## 2019 vs 2020 levels of high-risk drinking (total mean SSIS scores of both respondents with and without SUDs) - Boxplot (outliers hidden)
+
+-   **X-axis:** Fall19orFall20 (Factor, 2 Levels)
+
+-   **Y-axis:** AlcoholUseScoreSSIS (Interval scale, 0-39)
+
+```{r}
+ggplot(na.omit(DataSubset), aes(x = Fall19orFall20, y = AlcoholUseScoreSSIS)) +
+  geom_boxplot() +
+  coord_cartesian(ylim = c(0, 40)) +
+  stat_summary(fun.y = "mean", geom = "point", shape = 23, size = 3, fill = "red") +
+  xlab("Survey Year") +
+  ylab("Mean SSIS Alcohol Use Score")
+  
+```
+
+## Levels of high-risk drinking as an interaction between SUDs (yes or no) and Sample Year (2019 and 2020) - Boxplot (outliers hidden)
+
+-   **X-axis**: Fall19orFall20 X SUDs_Diagnosis_Factor
+
+-   **Y-axis**: AlcoholUseScoreSSIS (Interval scale, 0-39)
+
+```{r}
+ggplot(na.omit(DataSubset), aes(x = interaction(Fall19orFall20, SUDs_Diagnosis_Factor, lex.order =  FALSE), y = AlcoholUseScoreSSIS, fill = Fall19orFall20)) +
+  geom_boxplot(outlier.shape = NA) +
+  stat_summary(fun.y = "mean", geom = "point", shape = 23, size = 3, fill = "white") +
+  xlab("Survey Year x SUDs Diagnosis") +
+  scale_x_discrete(labels = c("Fall 2019, No Diagnosis", "Fall 2020, No Diagnosis", "Fall 2019, Diagnosis", "Fall 2020, Diagnosis")) +
+  ylab("Mean SSIS Alcohol Use Score") +
+  labs(fill = "Survey Year")
+
+
+```
+
+# When compared to 2019, both students with and without SUD diagnosis showed more difficulties falling asleep:
+
+## Avg Nights in past week with insomnia in 2019 vs 2020 (total average of both respondents with and without SUDs) - Boxplot (outliers hidden)
+
+-   **X-axis**: Fall19orFall20
+-   **Y-axis:** Insomnia (Number of days in past week they had extremely hard time falling alseep -- ordinal data)
+-   chi-Square
+
+```{r}
+ggplot(na.omit(DataSubset), aes(x = Fall19orFall20, y = Insomnia)) +
+ geom_boxplot() +
+ coord_cartesian(ylim = c(0, 9)) +
+ stat_summary(fun.y = "mean", geom = "point", shape = 23, size = 3, fill = "red") +
+ xlab("Survey Year") +
+ ylab("Average Number of Days Difficult Falling Asleep, Past Week")
+```
+
+## Avg number of nights in past week with insomnia as an interaction between SUDs (yes or no) and Sample Year (2019 and 2020) - Boxplot (outliers hidden)
+
+-   **X-axis**: Fall19orFall20 X SUDs_Diagnosis_Factor
+-   **Y-axis:** Insomnia (Number of days in past week they had extremely hard time falling alseep -- ratio data)
+
+```{r}
+ggplot(na.omit(DataSubset), aes(x = interaction(Fall19orFall20, SUDs_Diagnosis_Factor, lex.order =  FALSE), y = Insomnia, fill = Fall19orFall20)) +
+  geom_boxplot(outlier.shape = NA) +
+  stat_summary(fun.y = "mean", geom = "point", shape = 23, size = 3, fill = "white") +
+  xlab("Survey Year x SUDs Diagnosis") +
+  scale_x_discrete(labels = c("Fall 2019, No Diagnosis","Fall 2020, No Diagnosis", "Fall 2019, Diagnosis", "Fall 2020, Diagnosis")) +
+  ylab("Average Number of Days Difficult Falling Asleep, Past Week") +
+  labs(fill = "Survey Year")
+ 
+```
+
+## Avg Nights in past week with insomnia in 2019 vs 2020 (total average of both respondents with and without SUDs) - Mean Bar Plots:
+
+```{r}
+# l eval: false
+ggplot(na.omit(DataSubset), aes(x = interaction(Fall19orFall20, SUDs_Diagnosis_Factor, lex.order =  TRUE), y = Insomnia, fill = Fall19orFall20)) + 
+  geom_bar(stat ="summary", fun = "mean") 
+```
+
+```{r}
+ggplot(subset(DataSubset, !is.na(SUDs_Diagnosis_Factor)), aes(x = Fall19orFall20, y = Insomnia, fill = SUDs_Diagnosis_Factor)) + 
+  geom_bar(stat="summary", fun = "mean", position = "dodge") +
+  labs(fill = "") +
+  xlab("Survey Year") +
+  ylab("Average Number of Days Difficult Falling Asleep, Past Week")
+  
+```
+
+# When compared to 2019, students without an SUD showed longer sleep duration on average (in the past 2 weeks) in 2020; Conversely, when compared to 2019, students with an SUD showed shorter sleep duration on average (in the past 2 weeks) in 2020:
+
+-   What type of data is Average Sleep Duration?
+-   break into weekend night and weeknight (ordinal data)
+    -   break into sufficient sleep, insufficient (chi-square)
+
+Sleep Duration Averages for All Nights in the Past Two Weeks: (Total Mean: 4.748003)
+
+```{r}
+# l eval: false
+# Mean Sleep Duration for 2019 All Nights: No Diagnosis
+TotalMeanSleepDuration_2019_nd <- mean_se(DataSubset$AverageSleepDuration[DataSubset$Fall19orFall20 == "Fall 2019" & DataSubset$SUDs_Diagnosis_Factor == "No Diagnosis"])
+TotalMeanSleepDuration_2019_nd
+# 4.787497
+
+# Mean Sleep Duration for 2019 All Nights: Diagnosis
+TotalMeanSleepDuration_2019_d <- mean_se(DataSubset$AverageSleepDuration[DataSubset$Fall19orFall20 == "Fall 2019" & DataSubset$SUDs_Diagnosis_Factor == "Diagnosis"])
+TotalMeanSleepDuration_2019_d
+# 4.641503
+
+# Mean Sleep Duration for 2020 All Nights: No Diagnosis
+TotalMeanSleepDuration_2020_nd <- mean_se(DataSubset$AverageSleepDuration[DataSubset$Fall19orFall20 == "Fall 2020" & DataSubset$SUDs_Diagnosis_Factor == "No Diagnosis"])
+TotalMeanSleepDuration_2020_nd
+# 4.923866
+
+# Mean Sleep Duration for 2020 All Nights: Diagnosis
+TotalMeanSleepDuration_2020_d <- mean_se(DataSubset$AverageSleepDuration[DataSubset$Fall19orFall20 == "Fall 2020" & DataSubset$SUDs_Diagnosis_Factor == "Diagnosis"])
+TotalMeanSleepDuration_2020_d
+# 4.639147
+```
+
+## Box Plots of Average Sleep Duration of All Nights in the Past 2 Weeks - Interaction Between SUDs and Year:
+
+```{r}
+ggplot(subset(DataSubset, !is.na(SUDs_Diagnosis_Factor)), aes(x = interaction(Fall19orFall20, SUDs_Diagnosis_Factor, lex.order =  TRUE), y = AverageSleepDuration, fill = Fall19orFall20)) +
+  geom_boxplot(outlier.shape = NA) +
+  stat_summary(fun.y = "mean", geom = "point", shape = 23, size = 3, fill = "white")+
+  xlab("Survey Year x SUDs Diagnosis") +
+  scale_x_discrete(labels = c("Fall 2019, No Diagnosis", "Fall 2019, Diagnosis", "Fall 2020, No Diagnosis", "Fall 2020, Diagnosis")) +
+  ylab("Average Hours of Sleep Per Night in the Last 2 Weeks") +
+  labs(fill = "Survey Year")
+```
+
+## Box Plots of Average Sleep Duration of All Nights in the Past Two Weeks Across Both SUDs Groups, by Year:
+
+```{r}
+# l eval: false
+ggplot(na.omit(DataSubset), aes(x = Fall19orFall20, y = AverageSleepDuration)) +
+  geom_boxplot() +
+  coord_cartesian(ylim = c(0, 8)) +
+  stat_summary(fun.y = "mean", geom = "point", shape = 23, size = 3, fill = "red") +
+  xlab("Survey Year") +
+  ylab("Average Hours of Sleep Per Night in the Last 2 Weeks")
+```
+
+## Mean Bar Plot of Average Sleep Duration of All Nights in the Past Two Weeks:
+
+```{r}
+ggplot(subset(DataSubset, !is.na(SUDs_Diagnosis_Factor)), aes(x = Fall19orFall20, y = AverageSleepDuration, fill = SUDs_Diagnosis_Factor)) + 
+  geom_bar(stat="summary", position = "dodge") +
+  labs(fill = "")
+```
+
+By diagnosis
+
+```{r}
+ggplot(subset(DataSubset, !is.na(SUDs_Diagnosis_Factor)), aes(x = SUDs_Diagnosis_Factor , y = AverageSleepDuration, fill = Fall19orFall20)) + 
+  geom_bar(stat="summary", position = "dodge") +
+  labs(fill = "")
+```
+
+# When compared to 2019, both students with and without SUD diagnosis showed longer sleep duration in the past two weeks:
+
+Sleep Duration Averages for Weeknights: (Total Mean: 4.54)
+
+```{r}
+# l eval: false
+# Average Sleep Duration Weeknights, for 2019: No Diagnosis
+MeanWeeknightSleepDuration_2019_nd <- mean_se(DataSubset$AvgSleepWeeknight[DataSubset$Fall19orFall20 == "Fall 2019" & DataSubset$SUDs_Diagnosis_Factor == "No Diagnosis"])
+MeanWeeknightSleepDuration_2019_nd
+# 4.501627
+
+# Average Sleep Duration Weeknights, for 2019: Diagnosis
+MeanWeeknightSleepDuration_2019_d <- 
+mean_se(DataSubset$AvgSleepWeeknight[DataSubset$Fall19orFall20 == "Fall 2019" & DataSubset$SUDs_Diagnosis_Factor == "Diagnosis"])
+MeanWeeknightSleepDuration_2019_d
+# 4.353081
+
+# Average Sleep Duration Weeknights, for 2020: No Diagnosis
+MeanWeeknightSleepDuration_2020_nd <- mean_se(DataSubset$AvgSleepWeeknight[DataSubset$Fall19orFall20 == "Fall 2020" & DataSubset$SUDs_Diagnosis_Factor == "No Diagnosis"])
+MeanWeeknightSleepDuration_2020_nd
+# 4.688646
+
+# Average Sleep Duration Weeknights, for 2020: Diagnosis
+MeanWeeknightSleepDuration_2020_d <- 
+mean_se(DataSubset$AvgSleepWeeknight[DataSubset$Fall19orFall20 == "Fall 2020" & DataSubset$SUDs_Diagnosis_Factor == "Diagnosis"])
+MeanWeeknightSleepDuration_2020_d
+# 4.474026
+```
+
+## Box Plots of Average Sleep Duration of Weeknights - Interaction Between SUDs and Year:
+
+```{r}
+ggplot(subset(DataSubset, !is.na(SUDs_Diagnosis_Factor)), aes(x = interaction(Fall19orFall20, SUDs_Diagnosis_Factor, lex.order =  TRUE), y = AvgSleepWeeknight, fill = Fall19orFall20)) +
+  geom_boxplot(outlier.shape = NA) +
+  stat_summary(fun.y = "mean", geom = "point", shape = 23, size = 3, fill = "white")+
+  xlab("Survey Year x SUDs Diagnosis") +
+  scale_x_discrete(labels = c("Fall 2019, No Diagnosis", "Fall 2019, Diagnosis", "Fall 2020, No Diagnosis", "Fall 2020, Diagnosis")) +
+  ylab("Average Hours of Sleep Per Weeknight in the Past 2 Weeks") +
+  labs(fill = "Survey Year")
+```
+
+## Box Plots of Average Sleep Duration of All Nights Across Both SUDs Groups, by Year:
+
+```{r}
+ggplot(na.omit(DataSubset), aes(x = Fall19orFall20, y = AvgSleepWeeknight)) +
+  geom_boxplot() +
+  coord_cartesian(ylim = c(0, 8)) +
+  stat_summary(fun.y = "mean", geom = "point", shape = 23, size = 3, fill = "red") +
+  xlab("Survey Year") +
+  ylab("Mean SSIS Alcohol Use Score")
+  
+```
+
+## Mean Bar Plot of Average Sleep Duration of All Nights in the Past Two Weeks: ??
+
+```{r}
+ggplot(na.omit(DataSubset), aes(x = Fall19orFall20, y = AvgSleepWeeknight, fill = SUDs_Diagnosis_Factor)) + 
+  geom_bar(stat="summary", fun = "mean", position = "dodge") +
+  labs(fill = "")
+```
+
+Sleep Duration Averages for Weekend-nights: (Total Mean: 5.357937)
+
+```{r}
+# l eval: false
+# Average Sleep Duration Weekend-nights, for 2019: No Diagnosis
+MeanWeekendSleepDuration_2019_nd <- mean_se(DataSubset$AvgSleepWeekendNight[DataSubset$Fall19orFall20 == "Fall 2019" & DataSubset$SUDs_Diagnosis_Factor == "No Diagnosis"])
+MeanWeekendSleepDuration_2019_nd
+# 5.50164
+
+# Average Sleep Duration Weekend-nights, for 2019: Diagnosis
+MeanWeekendSleepDuration_2019_d <- 
+mean_se(DataSubset$AvgSleepWeekendNight[DataSubset$Fall19orFall20 == "Fall 2019" & DataSubset$SUDs_Diagnosis_Factor == "Diagnosis"])
+MeanWeekendSleepDuration_2019_d
+# 5.36643
+
+# Average Sleep Duration Weekend-nights, for 2020: No Diagnosis
+MeanWeekendSleepDuration_2020_nd <- mean_se(DataSubset$AvgSleepWeekendNight[DataSubset$Fall19orFall20 == "Fall 2020" & DataSubset$SUDs_Diagnosis_Factor == "No Diagnosis"])
+MeanWeekendSleepDuration_2020_nd
+# 5.511731
+
+# Average Sleep Duration Weekend-nights, for 2020: Diagnosis
+MeanWeekendSleepDuration_2020_d <- 
+mean_se(DataSubset$AvgSleepWeekendNight[DataSubset$Fall19orFall20 == "Fall 2020" & DataSubset$SUDs_Diagnosis_Factor == "Diagnosis"])
+MeanWeekendSleepDuration_2020_d
+# 5.051948
+```
+
+# In students without SUD, short sleep duration and loneliness were the primary predictors of past year high risk alcohol use.
+
+-   In the SPSS output, I only see ASSIST Alcohol Use Scores, what variables did we use for this portion? Can use any of the alcohol variables
+
+In students with SUD, long sleep latencies and loneliness (UCLA Loneliness Scale) were the primary predictors, and sleep factors predicted more variance in high-risk alcohol use than in the general college population. 
+
+-   As for sleep latencies, this would be the time it takes to fall asleep. Do I visualize this in the context of a larger model (i.e. model also includes loneliness/covariance between these variables)? Path analysis, structural equation modeling, regression
+
+-   pull out people who should have a diagnosis but don't (top 10% assist scores), as a third group,
+
+-   What are the sleep factors that predicted more variance in high-risk alcohol use than in the general college population? can try any of them! (Data reduction --
+
+Students with SUD diagnosis who also had sleep latencies \>30 minutes were significantly more likely to report binge drinking (\>5 drinks in one sitting) than those with sleep latencies. 
+
+-   5+ drinks one sitting: what type of data is this?
+
+-   treat as ordinal, or recode into percentages
+
+# Substance Use Disorder diagnosed folks who are maintaining sobriety? I don't know what percentage that is, but it's probably an interesting group to disaggregate if there are enough of them.
+
+```{r}
+DataSubset <- DataSubset %>%
+  mutate(SoberWithSUDs = 
+           case_when(
+             (SUDs_Diagnosis_Factor == 'Diagnosis' & DrankInTheLastYear == 1) ~ "Sober",
+             (SUDs_Diagnosis_Factor == 'Diagnosis' & DrankInTheLastYear != 1) ~ "Not Sober"))
+
+```
+
+#### Number of People with a SUD that are sober in 2019 and in 2020
+
+```{r}
+DataSubset <- DataSubset %>%
+  group_by(Fall19orFall20) 
+
+NumberofPeopleWithSUDsEachYear = count(DataSubset, SoberWithSUDs == "Sober")
+NumberofPeopleWithSUDs2019
+
+DataSubset <- DataSubset %>%
+  ungroup(Fall19orFall20) 
+```
+
+In 2019, 22 out of the 422 students (about 5.213%) with a Substance Abuse Diagnosis were sober (had not drank in the last year). In 2020, 11 out of the 154 students (about 7.143%) with a Substance Abuse Diagnosis were sober (had not drank in the last year). In total for both study years, 33 out of 576 (about 5.73%) of students with a Substance Abuse Diagnosis were sober (had not drank in the last year).

@@ -1,0 +1,385 @@
+---
+title: "SEM and Factor Analysis"
+author: "Caleb Cutrer"
+format:
+  html:
+    self-contained: true
+editor: visual
+execute: 
+  echo: true
+  eval: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(rmarkdown); library(knitr); library(readxl); library(corrplot); library(psych); library(pso); library(GPArotation); library(lavaan); library(readr); library(tidyverse); library(haven); library(lavaan)
+```
+
+### Reading in Raw Data:
+
+```{r}
+# Reading in raw data:
+DatasetRawSEM <- read_sav("CopySAV_Original.SAV")
+```
+
+### Initial Data Cleaning and Variable Creation:
+
+Creating a data subset with variables of interest and renaming variables:
+
+```{r}
+# Creating a data subset with variables of interest and renaming variables:
+DataSubsetSEM <- DatasetRawSEM %>%
+  select("N3Q28","N3Q29A","N3Q29B","N3Q29D",
+         "N3Q29E","N3Q29L","N3Q65A3", "SSISALCOHOL", "N3Q13","N3Q14",
+         "N3Q15", "N3Q16A", "N3Q16B", "N3Q16C","N3Q16D",
+         "N3Q45A","N3Q45B", "N3Q45C","ULS3", "RKESSLER6",
+         "N3Q65A7", "N3Q65A15", "STUDY") %>%
+  rename(
+    
+    # Alcohol Variables
+    FiveorMoreDrinks_1Sitting_last2wks = N3Q28,
+    DrinkingRegretAction = N3Q29A,
+    DrinkingBlackout = N3Q29B,
+    DrinkingPoliceTrouble = N3Q29D,
+    DrinkingUniAuthoritiesTrouble = N3Q29E, 
+    DrinkingNeededMedicalHelp = N3Q29L,
+    AlcoholSubstanceAbuseDiagnosis = N3Q65A3,
+    AlcoholUseScoreSSIS = SSISALCOHOL,
+    
+
+    # Sleep Variables:
+    TimeToFallAsleep = N3Q13,
+    AvgSleepWeeknight = N3Q14,
+    AvgSleepWeekendNight = N3Q15,
+    WakeUpEarly_CantSleep = N3Q16A, 
+    TiredDuringDay = N3Q16B,
+    SleepOnsetDifficult = N3Q16C,
+    EnoughSleep_FeelRested = N3Q16D, 
+    
+    # Loneliness:
+    LonelinessLackCompanionship = N3Q45A,
+    LonelinessFeelLeftOut = N3Q45B,
+    LonelinessIsolated = N3Q45C, 
+    UCLALonelinessScale = ULS3, 
+    
+    # Psychological Distress  
+    Kessler6DistressRecode = RKESSLER6,
+    
+    # Anxiety and Depression Diagnoses
+    AnxietyDiagnosis = N3Q65A7, 
+    # Depression Diagnosis
+    DepressionDiagnosis = N3Q65A15, 
+
+  )
+# Cleaning data & creating new variables:
+DataSubsetSEM <- DataSubsetSEM %>%
+  mutate(AlcoholSubstanceAbuseDiagnosis = 
+           as.numeric(AlcoholSubstanceAbuseDiagnosis)) %>%
+  
+  # Creating a variable for the number of nights sleep onset was difficult in past week
+  mutate(
+    "InsomniaNights" = as.numeric(SleepOnsetDifficult)) %>% 
+  select(-SleepOnsetDifficult) %>%
+  # Recoding Insomnia Variable to Represent True Values (# of Nights):
+  mutate(
+    InsomniaNights = case_when(
+      InsomniaNights == 1 ~ 0,
+      InsomniaNights == 2 ~ 1,
+      InsomniaNights == 3 ~ 2,
+      InsomniaNights == 4 ~ 3,
+      InsomniaNights == 5 ~ 4,
+      InsomniaNights == 6 ~ 5,
+      InsomniaNights == 7 ~ 6,
+      InsomniaNights == 8 ~ 7
+    )
+  ) %>%
+  # Creating variable that reflects the study (fall 2019 or fall 2020)
+  mutate(STUDY = as.numeric(STUDY)) %>%
+  mutate(
+    STUDY = 
+      case_when(
+        STUDY == 40 ~ 19,
+        STUDY == 42 ~ 20
+      )) %>%
+  mutate(
+    FiveorMoreDrinks_1Sitting_last2wks = as.numeric(FiveorMoreDrinks_1Sitting_last2wks)
+  )
+  
+
+```
+
+### Recoding Sleep Duration Variables, creating a variable for the average nightly sleep duration for all nights in the past 2 weeks
+
+```{r}
+# | message: false
+DataSubsetSEM <- DataSubsetSEM %>%
+  # Recoding weeknights:
+  mutate(
+    AvgSleepWeeknight = case_when(
+      AvgSleepWeeknight == 1 ~ 3,
+      AvgSleepWeeknight == 2 ~ 4,
+      AvgSleepWeeknight == 3 ~ 5,
+      AvgSleepWeeknight == 4 ~ 6,
+      AvgSleepWeeknight == 5 ~ 7,
+      AvgSleepWeeknight == 6 ~ 8,
+      AvgSleepWeeknight == 7 ~ 9,
+      AvgSleepWeeknight == 8 ~ 10,
+    )
+  ) %>%
+  # Recoding weekend-nights:
+  mutate(
+    AvgSleepWeekendNight = case_when(
+      AvgSleepWeekendNight == 1 ~ 3,
+      AvgSleepWeekendNight == 2 ~ 4,
+      AvgSleepWeekendNight == 3 ~ 5,
+      AvgSleepWeekendNight == 4 ~ 6,
+      AvgSleepWeekendNight == 5 ~ 7,
+      AvgSleepWeekendNight == 6 ~ 8,
+      AvgSleepWeekendNight == 7 ~ 9,
+      AvgSleepWeekendNight == 8 ~ 10,
+    )
+  ) 
+```
+
+#### Covariability Visualizations
+
+```{r}
+R <- cor(DataSubsetSEM, use = "pairwise.complete.obs")
+R 
+corrplot::corrplot(R)
+heatmap(R)
+```
+
+```{r}
+
+corrplot::corrplot(R, tl.cex = 0.5)
+```
+# Exploratory Factor Analysis:
+
+## Response (Drinking) Variables:
+
+#### Extracting Eigenvalues & Identifying Intrinsic Dimensionality for Response Variables
+
+```{r}
+Response <- DataSubsetSEM[ , c(1:8)]
+```
+
+```{r}
+R_response <- cor(Response, use = "pairwise.complete.obs")
+R_response
+eigen(R_response)$values
+plot(eigen(R_response)$values, type = "b") 
+
+```
+
+2.3359971 1.3220874 0.9702095 0.8096202 0.7642959 0.6947315 0.6059016 0.4971569
+
+Kaiser's (The number of factors is equal to the number of factors with eigenvalues greater than 1): 2
+
+Jollife's Criterion (over 0.7): 5
+
+Scree Test: 4
+
+#### Optimal Orthogonally Rotated Factor Loadings Matrix Response Variables
+
+```{r}
+A_response <- pca(r = R_response, nfactors = 5, rotate = "varimax")
+A_response
+```
+
+Cumulative Variance = 0.78
+
+#### Testing to See if Oblique Rotation was Necessary
+
+```{r}
+A_response_Oblique <- pca(r = R_response, nfactors = 5, rotate = "oblimin")
+A_response_Oblique
+```
+
+Yes it was.
+
+Cumulative Variance = 0.78
+
+#### Finding which items within this group can be combined to form latent variables:
+
+```{r}
+factor2cluster(loads = A_response_Oblique, cut = 0, aslist = TRUE)
+```
+
+```{r}
+A_response_ObliqueLoadings <- pca(r = R_response, nfactors = 5, rotate = "oblimin")$loadings[]
+round(A_response_ObliqueLoadings, 3)
+```
+
+Latent Variables:
+
+-   TC1 (Reflects Heavy Drinking and Regret): "DrinkingRegretAction", "DrinkingBlackout"
+
+-   TC2: (Legal Trouble): "DrinkingPoliceTrouble", "DrinkingUniAuthoritiesTrouble"
+
+-   TC3: "AlcoholSubstanceAbuseDiagnosis"
+
+-   TC4: "DrinkingNeededMedicalHelp" 
+
+-   TC5 (Binge Drinking, Risk) "AlcoholUseScoreSSIS", "FiveorMoreDrinks_1Sitting_last2wks"
+
+Complex variables: none
+
+
+## Predictor Variables:
+
+#### Extracting Eigenvalues & Identifying Intrinsic Dimensionality for the 15 Predictor Variables
+
+```{r}
+Predictors <- DataSubsetSEM[, - c(1:8)]
+```
+
+```{r}
+R_Predictors <- cor(Predictors, use = "pairwise.complete.obs")
+R_Predictors
+eigen(R_Predictors)$values
+plot(eigen(R_Predictors)$values, type = "b") 
+
+```
+
+ [1] 4.411142 2.108861 1.528666 1.194879 1.014397 0.94526841 0.8057850 0.5893418 5.044107e-01 4.867401e-01 4.646043e-01 3.604476e-01 3.030739e-01 2.823713e-01 1.172962e-05
+
+Kaiser's: 5\
+Jollife's Criterion: 7\
+Scree Test: 7\
+
+#### Optimal Orthogonally Rotated Factor Loadings Matrix Predictors
+
+```{r}
+A_Predictors <- pca(r = R_Predictors, nfactors = 7, rotate = "varimax")
+A_Predictors
+```
+
+Cumulative Variance: 0.8
+
+#### Testing to See if Oblique Rotation was Necessary
+
+```{r}
+A_PredictorsOblique <- pca(r = R_Predictors, nfactors = 7, rotate = "oblimin")
+A_PredictorsOblique
+```
+
+No, it wasn't.
+
+#### Finding any latent variables
+```{r}
+factor2cluster(loads = A_Predictors, cut = 0, aslist = TRUE)
+```
+
+
+```{r} 
+# l eval: false
+keys1<- factor2cluster(loads = A_Predictors, cut = 0, aslist = TRUE)
+keys1
+
+#cluster.cor(keys = keys1, r.mat = R_Predictors)
+```
+
+$RC1 (Loneliness & Distress): "LonelinessLackCompanionship", "LonelinessFeelLeftOut", "LonelinessIsolated", "UCLALonelinessScale", (COMPLEX) "Kessler6DistressRecode"        
+
+$RC2 (Sleep quality): "TiredDuringDay", "-EnoughSleep_FeelRested"
+
+$RC3 (Anxiety and Depression): "AnxietyDiagnosis", "DepressionDiagnosis"
+
+$RC4 (Sleep Latency): "TimeToFallAsleep", "InsomniaNights"  
+
+$RC5 (Sleep Duration): (COMPLEX) "AvgSleepWeeknight" "AvgSleepWeekendNight"
+
+$RC6: "STUDY"
+
+$RC7: "WakeUpEarly_CantSleep"
+
+```{r}
+A_PredictorsLoadings <- pca(r = R_Predictors, nfactors = 7, rotate = "varimax")$loadings[]
+round(A_PredictorsLoadings,3)
+```
+Complex variables: \
+AvgSleepWeeknight: loads onto RC2 (Sleep Quality) and RC5 (Sleep Duration) \
+Kessler6DistressRecode: loads onto RC1 (Loneliness & Distress) and RC2 (Sleep quality) \
+
+
+## Path Diagram of the Model:
+
+```{r}
+include_graphics("Finalized Path Diagram copy.jpg")
+```
+
+Number of Unique Data Points: 300
+
+```{r}
+(24*(25))/2
+```
+
+Number of parameters to estimate: 109
+
+```{r}
+20+9+64+16
+```
+
+# [*Model is over-identified*]{.underline}
+
+# Structural Equation Modeling: (Not Done - Finish Debugging Prior to Arrival)
+
+```{r}
+EQN <- '
+# Measurement Model (Factor Specification)
+
+  Loneliness =~ LonelinessLackCompanionship + LonelinessFeelLeftOut + LonelinessIsolated + UCLALonelinessScale
+  SleepQuality =~ TiredDuringDay + EnoughSleep_FeelRested
+  AnxietyDepression =~ AnxietyDiagnosis + DepressionDiagnosis
+  SleepLatency =~ TimeToFallAsleep + InsomniaNights 
+  SleepDuration =~   AvgSleepWeekendNight
+  Fall19or20 =~ STUDY
+  EarlyNoSleep =~ WakeUpEarly_CantSleep
+  
+  BlackoutDrinkRegret =~ DrinkingRegretAction + DrinkingBlackout
+  LegalTrouble =~ DrinkingPoliceTrouble + DrinkingUniAuthoritiesTrouble
+  SUDsDiagnosis =~ AlcoholSubstanceAbuseDiagnosis
+  DrinkingMedicalHelp =~ DrinkingNeededMedicalHelp
+  RiskBingeDrink =~ AlcoholUseScoreSSIS + FiveorMoreDrinks_1Sitting_last2wks
+
+  
+
+# Measurement Model (Covariance Specification)
+  
+  AvgSleepWeeknight ~~ SleepQuality
+  AvgSleepWeeknight ~~ SleepDuration
+  Kessler6DistressRecode ~~ Loneliness
+  Kessler6DistressRecode ~~ SleepQuality
+  
+# Structural Model
+  BlackoutDrinkRegret ~ Loneliness + SleepQuality + AnxietyDepression + SleepLatency + SleepDuration + Fall19or20 + EarlyNoSleep
+  LegalTrouble ~ Loneliness + SleepQuality + AnxietyDepression + SleepLatency + SleepDuration + Fall19or20 + EarlyNoSleep
+  SUDsDiagnosis ~ Loneliness + SleepQuality + AnxietyDepression + SleepLatency + SleepDuration + Fall19or20 + EarlyNoSleep
+  DrinkingMedicalHelp ~ Loneliness + SleepQuality + AnxietyDepression + SleepLatency + SleepDuration + Fall19or20 + EarlyNoSleep
+  RiskBingeDrink ~ Loneliness + SleepQuality + AnxietyDepression + SleepLatency + SleepDuration + Fall19or20 + EarlyNoSleep
+  
+'
+```
+
+```{r}
+covdata <- cov(DataSubsetSEM, use = "pairwise.complete.obs")
+covdata
+
+```
+
+```{r}
+MOD <- sem(model = EQN, sample.cov = covdata, sample.nobs = 276, check.gradient = FALSE ) 
+
+```
+
+```{r}
+MOD <- sem(model = EQN, data = DataSubsetSEM) 
+
+```
+
+```{r}
+parameters <- parameterEstimates(MOD)
+
+parametersPval <- subset(parameters, !(pvalue > 0.05))
+```
